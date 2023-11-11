@@ -6,8 +6,14 @@ import {IFeeManager, Common} from "./interfaces/IFeeManager.sol";
 import {IVerifierProxy} from "./interfaces/IVerifierProxy.sol";
 import {IRewardManager} from "@chainlink/contracts/src/v0.8/llo-feeds/interfaces/IRewardManager.sol";
 import {IERC20} from "@chainlink/contracts/src/v0.8/vendor/openzeppelin-solidity/v4.8.0/contracts/interfaces/IERC20.sol";
+import {Withdraw} from "./utils/Withdraw.sol";
 
-contract DataStreamsERC7412Compatible is IERC7412 {
+/**
+ * THIS IS AN EXAMPLE CONTRACT THAT USES HARDCODED VALUES FOR CLARITY.
+ * THIS IS AN EXAMPLE CONTRACT THAT USES UN-AUDITED CODE.
+ * DO NOT USE THIS CODE IN PRODUCTION.
+ */
+contract DataStreamsERC7412Compatible is IERC7412, Withdraw {
     struct BasicReport {
         bytes32 feedId; // The feed ID the report has data for
         uint32 validFromTimestamp; // Earliest timestamp for which price is applicable
@@ -38,13 +44,13 @@ contract DataStreamsERC7412Compatible is IERC7412 {
 
     /**
      * @notice Emits an OracleDataRequired error when an oracle is requested to provide data
-     * @param feedsHex - An array of Stream IDs which can be found at https://docs.chain.link/data-streams/stream-ids
-     *                   For example, Basic ETH/USD price report is 0x00029584363bcf642315133c335b3646513c20f049602fc7d933be0d3f6360d3
+     * @param feedIds - An array of Stream IDs which can be found at https://docs.chain.link/data-streams/stream-ids
+     *                  For example, Basic ETH/USD price report is 0x00029584363bcf642315133c335b3646513c20f049602fc7d933be0d3f6360d3
      */
-    function generate7412CompatibleCall(string memory feedsHex) public view {
+    function generate7412CompatibleCall(string[] memory feedIds) public view {
         bytes memory oracleQuery = abi.encode(
             STRING_DATASTREAMS_FEEDLABEL,
-            feedsHex,
+            feedIds,
             STRING_DATASTREAMS_QUERYLABEL,
             block.timestamp,
             ""
