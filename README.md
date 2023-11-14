@@ -24,7 +24,11 @@ forge build
 forge create --rpc-url <ARBITRUM_GOERLI_RPC_URL> --private-key <DEPLOYER_PRIVATE_KEY> contracts/DataStreamsERC7412Compatible.sol:DataStreamsERC7412Compatible --constructor-args 0xea9B98Be000FBEA7f6e88D08ebe70EbaAD10224c
 ```
 
-4. Set the following environment variables
+4. Set the following environment variables  
+
+<!-- TODO @andrejrakic CHAINLINK API URL && CHAINLINK_WEBSOCKET_URL--- is this from here? https://www.notion.so/chainlink/Data-Streams-Interfaces-and-Touchpoints-fec274d3402e4c28ae694317532d8939?pvs=4#f86d6236a81742398a4794c64b53e809 
+If so we should put that in a comment in the code block below.
+ -->
 
 ```
 CHAINLINK_CLIENT_ID=
