@@ -11,13 +11,12 @@ async function fetchOffchainData(SDK: ChainlinkDataStreamsConsumer, oracleQueryD
 
     const decodedData = abiCoder.decode([`string`, `string[]`, `string`, `uint`, `string`], oracleQueryData);
 
-    const reports = await SDK.fetchFeedsRaw({
-        timestamp: `${decodedData[3]}`,
-        feeds: decodedData[1]
+    const report = await SDK.fetchLatestFeedRaw({
+        feed: decodedData[1][0]
     })
 
     const extraData = "0x" // empty
-    const signedOffchainData = abiCoder.encode(["bytes[]", "bytes"], [reports, extraData])
+    const signedOffchainData = abiCoder.encode(["bytes[]", "bytes"], [[report], extraData])
 
     return signedOffchainData;
 }
@@ -47,7 +46,7 @@ async function main() {
         });
 
         // TODO: This should not be hardcoded, rather pushed as an argument from CLI
-        const feedIds = [`0x00027bbaff688c906a3e20a34fe951715d1018d262a5b66e38eda027a674cd1b`, `0x00026776af33e1916ef83f016a5e7fad5b4322242fe6133b631d612fa7528bbe`]
+        const feedIds = [`0x00027bbaff688c906a3e20a34fe951715d1018d262a5b66e38eda027a674cd1b`]
 
         try {
             await dataStreamsErc7412Compatible.generate7412CompatibleCall(feedIds);

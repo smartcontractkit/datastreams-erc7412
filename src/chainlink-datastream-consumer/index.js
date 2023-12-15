@@ -74,12 +74,12 @@ export default class LOLSDK extends EventEmitter {
         Report.fromAPIResponse
     )
 
-    fetchFeedRaw = ({ timestamp, feed }) => this.fetch('/api/v1/reports', {
-        timestamp, feedID: feed,
+    fetchLatestFeedRaw = ({ feed }) => this.fetch('/api/v1/reports/latest', {
+        feedID: feed,
     }).then(
         response => {
             if (response.error) throw new Error(response.error)
-            return response.fullReport
+            return response.report.fullReport
         }
     );
 
