@@ -60,7 +60,7 @@ contract DataStreamsERC7412Compatible is IERC7412, Withdraw {
     }
 
     function oracleId() external pure override returns (bytes32) {
-        return "TEST";
+        return "CHAINLINK_DATA_STREAMS";
     }
 
     function fulfillOracleQuery(
