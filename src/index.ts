@@ -11,8 +11,7 @@ async function fetchOffchainData(SDK: ChainlinkDataStreamsConsumer, oracleQueryD
 
     const decodedData = abiCoder.decode([`string`, `bytes32`, `string`, `uint`, `string`], oracleQueryData);
 
-    const report = await SDK.fetchFeedRaw({
-        timestamp: `${decodedData[3]}`,
+    const report = await SDK.fetchLatestFeedRaw({
         feed: decodedData[1]
     })
 
