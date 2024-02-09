@@ -79,7 +79,7 @@ export default class LOLSDK extends EventEmitter {
     }).then(
         response => {
             if (response.error) throw new Error(response.error)
-            return response.fullReport
+            return response.report
         }
     );
 

@@ -119,7 +119,21 @@ You will see the URL to the Arbitrum Sepolia block explorer with a transaction h
 > compile
 > tsc
 
-Transaction hash: https://sepolia.arbiscan.io/tx/0x4b7ade3af1bd715162f44f5a3a6e9ef63310280bbc6eb2c8944455a5d36478e8
+Transaction hash: https://sepolia.arbiscan.io/tx/0xa6092c573aac7b48330e6a7df824a5fda5193e37b7652b11b18d73b98debf7b1
+```
+
+If you repeat the command, and the latest price hasn't expired yet, you will see the log with the latest cached price from the `DataStreamsERC7412Compatible` smart contract, for example:
+
+```shell
+
+> start
+> npm run compile && node dist/index.js
+
+
+> compile
+> tsc
+
+Latest price of 0x00027bbaff688c906a3e20a34fe951715d1018d262a5b66e38eda027a674cd1b feed ID: 2419103125435294300000
 ```
 
 You will see logs with actual prices if you check the `Events` tab of the `DataStreamsErc7412Compatible` smart contract at block explorer at `https://sepolia.arbiscan.io/address/DATA_STREAMS_ERC7412_COMPATIBLE_CONTRACT_ADDRESS#events`, for example

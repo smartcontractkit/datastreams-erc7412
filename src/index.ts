@@ -9,15 +9,15 @@ import { dataStreamsErc7412CompatibleAbi, multicall3_1Abi } from './abi.js'
 async function fetchOffchainData(SDK: ChainlinkDataStreamsConsumer, oracleQueryData: string) {
     const abiCoder = new AbiCoder();
 
-    const decodedData = abiCoder.decode([`string`, `string[]`, `string`, `uint`, `string`], oracleQueryData);
+    const decodedData = abiCoder.decode([`string`, `bytes32`, `string`, `uint`, `string`], oracleQueryData);
 
-    const reports = await SDK.fetchFeedsRaw({
+    const report = await SDK.fetchFeedRaw({
         timestamp: `${decodedData[3]}`,
-        feeds: decodedData[1]
+        feed: decodedData[1]
     })
 
     const extraData = "0x" // empty
-    const signedOffchainData = abiCoder.encode(["bytes[]", "bytes"], [reports, extraData])
+    const signedOffchainData = abiCoder.encode(["bytes", "bytes"], [report.fullReport, extraData])
 
     return signedOffchainData;
 }
@@ -46,11 +46,13 @@ async function main() {
             clientSecret: process.env.CHAINLINK_CLIENT_SECRET!,
         });
 
-        // TODO: This should not be hardcoded, rather pushed as an argument from CLI
-        const feedIds = [`0x00027bbaff688c906a3e20a34fe951715d1018d262a5b66e38eda027a674cd1b`, `0x00026776af33e1916ef83f016a5e7fad5b4322242fe6133b631d612fa7528bbe`]
+        // TODO: These should not be hardcoded, rather pushed as arguments from the CLI
+        const feedId = `0x00027bbaff688c906a3e20a34fe951715d1018d262a5b66e38eda027a674cd1b`;
+        const stalenessTolerance = 3600; // 1 hour
 
         try {
-            await dataStreamsErc7412Compatible.generate7412CompatibleCall(feedIds);
+            const latestPrice = await dataStreamsErc7412Compatible.generate7412CompatibleCall(feedId, stalenessTolerance);
+            console.log(`Latest price of ${feedId} feed ID: ${latestPrice}`);
         } catch (err: any) {
             if (isError(err, `CALL_EXCEPTION`)) {
                 const oracleQueryData = err.revert?.args[1];
