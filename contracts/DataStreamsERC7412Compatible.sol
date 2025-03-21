@@ -9,9 +9,9 @@ import {IERC20} from "@chainlink/contracts/src/v0.8/vendor/openzeppelin-solidity
 import {Withdraw} from "./utils/Withdraw.sol";
 
 /**
- * THIS IS AN EXAMPLE CONTRACT THAT USES HARDCODED VALUES FOR CLARITY.
- * THIS IS AN EXAMPLE CONTRACT THAT USES UN-AUDITED CODE.
- * DO NOT USE THIS CODE IN PRODUCTION.
+ * @notice This contract allows for interaction with chainlink datastreams through ERC-7412.
+ * It records any prices that it receives within the contract, and dispenses them later when requested. If the price has not been supplied yet,
+ * it emits an ODR error as per the spec.
  */
 contract DataStreamsERC7412Compatible is IERC7412, Withdraw {
     struct BasicReport {
@@ -24,23 +24,18 @@ contract DataStreamsERC7412Compatible is IERC7412, Withdraw {
         int192 price; // DON consensus median price, carried to 8 decimal places
     }
 
-    struct LatestPriceData {
-        int192 price; // DON consensus median price, carried to 8 decimal places
-        uint32 expiresAt; // Latest timestamp where the report can be verified on-chain
-        uint32 cacheTimestamp; // The timestamp when the entry to the s_latestPrice mapping has been made
-    }
-
     /**
      * @notice The Chainlink Verifier Contract
      * This contract verifies the signature from the DON to cryptographically guarantee that the report has not been altered
      * from the time that the DON reached consensus to the point where you use the data in your application.
      */
-    IVerifierProxy public verifier;
+    IVerifierProxy immutable verifier;
 
     string public constant STRING_DATASTREAMS_FEEDLABEL = "feedIDs";
     string public constant STRING_DATASTREAMS_QUERYLABEL = "timestamp";
 
-    mapping(bytes32 => LatestPriceData) public s_latestPrice;
+    mapping(bytes32 => uint32) public s_latestPriceTimestamp;
+    mapping(bytes32 => mapping(uint32 => int192)) public s_priceSnapshots;
 
     event PriceUpdate(int192 indexed price, bytes32 indexed feedId);
 
@@ -49,98 +44,142 @@ contract DataStreamsERC7412Compatible is IERC7412, Withdraw {
      */
     error SafeCastOverflowedUintDowncast(uint8 bits, uint256 value);
 
+    /**
+     * @dev Emitted when `approve` on an ERC20 token is called, but the function does not return true
+     */
+    error UnexpectedApproveResult(address erc20Token, uint256 approveAmount);
+
+    /**
+     * @dev Emitted when the timestamp supplied to getPriceForTimestamp is 0
+     */
+    error InvalidTimestamp(uint256 givenTimestamp);
+
     constructor(address _verifier) {
         verifier = IVerifierProxy(_verifier);
     }
 
     receive() external payable {}
 
-    /**
-     * @notice Emits an OracleDataRequired error when an oracle is requested to provide data
-     * @param feedId - Stream ID which can be found at https://docs.chain.link/data-streams/stream-ids
-     *                  For example, Basic ETH/USD price report is 0x00027bbaff688c906a3e20a34fe951715d1018d262a5b66e38eda027a674cd1b
-     */
-    function generate7412CompatibleCall(
-        bytes32 feedId,
-        uint32 stalenessTolerance
-    ) public view returns (int192) {
-        LatestPriceData memory latestPrice = s_latestPrice[feedId];
-        uint32 considerStaleAfter = latestPrice.cacheTimestamp +
-            stalenessTolerance;
-
-        if (
-            considerStaleAfter > toUint32(block.timestamp) &&
-            latestPrice.expiresAt > considerStaleAfter
-        ) {
-            return latestPrice.price;
-        }
-
-        bytes memory oracleQuery = abi.encode(
-            STRING_DATASTREAMS_FEEDLABEL,
-            feedId,
-            STRING_DATASTREAMS_QUERYLABEL,
-            block.timestamp,
-            ""
-        );
-
-        revert IERC7412.OracleDataRequired(address(this), oracleQuery);
-    }
-
     function oracleId() external pure override returns (bytes32) {
         return "CHAINLINK_DATA_STREAMS";
     }
 
-    function fulfillOracleQuery(
-        bytes calldata signedOffchainData
-    ) external payable override {
-        // Decode incoming signedOffchainData
-        (bytes memory signedReport, ) = abi.decode(
-            signedOffchainData,
-            (bytes, bytes)
-        );
+    /**
+     * @notice Retrieves the latest price for the given feedId. If the price is too stale, an OracleDataRequired error is emitted.
+     * @param feedId - Stream ID which can be found at https://docs.chain.link/data-streams/stream-ids
+     */
+    function getLatestPrice(bytes32 feedId, uint32 stalenessTolerance) public view returns (int192) {
+        uint32 latestPriceTimestamp = s_latestPriceTimestamp[feedId];
+        uint32 considerStaleAfter = latestPriceTimestamp + stalenessTolerance;
 
-        (, bytes memory reportData) = abi.decode(
-            signedReport,
-            (bytes32[3], bytes)
-        );
+        if (considerStaleAfter > toUint32(block.timestamp)) {
+            return s_priceSnapshots[feedId][latestPriceTimestamp];
+        }
+
+        bytes memory oracleQuery =
+            abi.encode(STRING_DATASTREAMS_FEEDLABEL, feedId, STRING_DATASTREAMS_QUERYLABEL, block.timestamp, "");
+
+        revert IERC7412.OracleDataRequired(address(this), oracleQuery, 0);
+    }
+
+    /**
+     * @notice Retrieves the price for the given feedId at a given timestamp. If a matching price update is not found, an OracleDataRequired error is emitted.
+     * @param feedId - Stream ID which can be found at https://docs.chain.link/data-streams/stream-ids
+     * @param forTimestamp - The timestamp in the past that should be retrieved
+     */
+    function getPriceForTimestamp(bytes32 feedId, uint32 forTimestamp) public view returns (int192) {
+        if (forTimestamp == 0) {
+            revert InvalidTimestamp(forTimestamp);
+        }
+
+        int192 price = s_priceSnapshots[feedId][forTimestamp];
+
+        // consider the prices to be populated if its non-0
+        // if a price is actually reported as 0, its probably either a price feed nobody would ever care about, or its an error.
+        if (price != 0) {
+            return price;
+        }
+
+        bytes memory oracleQuery =
+            abi.encode(STRING_DATASTREAMS_FEEDLABEL, feedId, STRING_DATASTREAMS_QUERYLABEL, forTimestamp, "");
+
+        revert IERC7412.OracleDataRequired(address(this), oracleQuery, 0);
+    }
+
+    /**
+     * @notice Same as `getPriceForTimestampAndClean`, but . Call this function instead of the original for some gas savings.
+     * @param feedId - Stream ID which can be found at https://docs.chain.link/data-streams/stream-ids
+     * @param forTimestamp - The timestamp in the past that should be retrieved
+     */
+    function getPriceForTimestampAndClean(bytes32 feedId, uint32 forTimestamp) public returns (int192) {
+        int192 price = s_priceSnapshots[feedId][forTimestamp];
+
+        // consider the prices to be populated if its non-0
+        // if a price is actually reported as 0, its probably either a price feed nobody would ever care about, or its an error.
+        if (price != 0) {
+            // if we are calling this function and it is not the currently recognized latest price,
+            // we can delete the price and likely save big gas in most cases
+            if (s_latestPriceTimestamp[feedId] != forTimestamp) {
+                s_priceSnapshots[feedId][forTimestamp] = 0;
+            }
+            return price;
+        }
+
+        bytes memory oracleQuery =
+            abi.encode(STRING_DATASTREAMS_FEEDLABEL, feedId, STRING_DATASTREAMS_QUERYLABEL, forTimestamp, "");
+
+        revert IERC7412.OracleDataRequired(address(this), oracleQuery, 0);
+    }
+
+    function fulfillOracleQuery(bytes calldata signedOffchainData) external payable override {
+        // Decode incoming signedOffchainData
+        (bytes memory signedReport,) = abi.decode(signedOffchainData, (bytes, bytes));
+
+        (, bytes memory reportData) = abi.decode(signedReport, (bytes32[3], bytes));
 
         // Handle billing
         IFeeManager feeManager = IFeeManager(address(verifier.s_feeManager()));
-        IRewardManager rewardManager = IRewardManager(
-            address(feeManager.i_rewardManager())
-        );
 
-        // Fees can be paid in either LINK (i_linkAddress()) or native coin ERC20-wrapped version (i_nativeAddress())
-        address feeTokenAddress = feeManager.i_linkAddress();
-        (Common.Asset memory fee, , ) = feeManager.getFeeAndReward(
-            address(this),
-            reportData,
-            feeTokenAddress
-        );
+        address feeTokenAddress;
+        if (address(feeManager) != address(0)) {
+            IRewardManager rewardManager = IRewardManager(address(feeManager.i_rewardManager()));
+            feeTokenAddress = feeManager.i_linkAddress();
 
-        if (IERC20(feeTokenAddress).balanceOf(address(this)) < fee.amount) {
-            revert IERC7412.FeeRequired(fee.amount);
-        } else {
-            IERC20(feeTokenAddress).approve(address(rewardManager), fee.amount);
+            // send the fee
+            (Common.Asset memory fee,,) = feeManager.getFeeAndReward(address(this), reportData, feeTokenAddress);
+
+            if (IERC20(feeTokenAddress).balanceOf(address(this)) < fee.amount) {
+                revert IERC7412.FeeRequired(fee.amount);
+            } else {
+                // NOTE: retrieval of prevAllownace here is to satisfy minor audit finding of possible "subtle bugs" due to existing allowance
+                uint256 prevAllowance = IERC20(feeTokenAddress).allowance(address(this), address(rewardManager));
+                bool result = IERC20(feeTokenAddress).approve(address(rewardManager), prevAllowance + fee.amount);
+                if (!result) {
+                    revert UnexpectedApproveResult(feeTokenAddress, fee.amount);
+                }
+            }
         }
 
         // Verify the report
-        bytes memory verifiedReportData = verifier.verify(
-            signedReport,
-            abi.encode(feeTokenAddress)
-        );
+        bytes memory verifiedReportData = verifier.verify(signedReport, abi.encode(feeTokenAddress));
 
         // Decode verified report data into BasicReport struct
-        BasicReport memory verifiedReport = abi.decode(
-            verifiedReportData,
-            (BasicReport)
-        );
+        BasicReport memory verifiedReport = abi.decode(verifiedReportData, (BasicReport));
 
-        s_latestPrice[verifiedReport.feedId] = LatestPriceData({
-            price: verifiedReport.price,
-            expiresAt: verifiedReport.expiresAt,
-            cacheTimestamp: toUint32(block.timestamp)
-        });
+        if (s_priceSnapshots[verifiedReport.feedId][verifiedReport.observationsTimestamp] != 0) {
+            // report has already been published on chain. only one report can be published per observation timestamp, so return early
+            // we dont return an error becuase its not a problem if a price report gets submitted more than once.
+            // we just want to make sure its there if it isnt already
+            return;
+        }
+
+        s_priceSnapshots[verifiedReport.feedId][verifiedReport.observationsTimestamp] = verifiedReport.price;
+
+        // set latest price if applicable
+        if (s_latestPriceTimestamp[verifiedReport.feedId] < verifiedReport.observationsTimestamp) {
+            s_priceSnapshots[verifiedReport.feedId][s_latestPriceTimestamp[verifiedReport.feedId]] = 0;
+            s_latestPriceTimestamp[verifiedReport.feedId] = verifiedReport.observationsTimestamp;
+        }
 
         // Log price from report
         emit PriceUpdate(verifiedReport.price, verifiedReport.feedId);

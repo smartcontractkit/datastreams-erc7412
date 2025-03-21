@@ -8,7 +8,7 @@ interface IFeeManager {
         address subscriber,
         bytes memory report,
         address quoteAddress
-    ) external returns (Common.Asset memory, Common.Asset memory, uint256);
+    ) external view returns (Common.Asset memory, Common.Asset memory, uint256);
 
     function i_linkAddress() external view returns (address);
 
